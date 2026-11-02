@@ -1,0 +1,34 @@
+# Haltwise policy file. Lives in your repo, changes go through code review.
+
+upstream: http://127.0.0.1:9000          # the internal service your agent's tools call
+upstream_timeout_seconds: 5
+
+budgets:
+  per_run:
+    max_calls: 20                        # hard stop on tool calls per agent run
+    max_cost_usd: 0.50                   # hard stop on estimated spend per run
+
+tool_costs_usd:                          # estimated cost per call (API fees, compute, LLM step)
+  get_customer: 0.01
+  refund_order: 0.05
+  delete_customer: 0.01
+default_tool_cost_usd: 0.01
+
+loop:
+  max_identical_calls: 3                 # same tool + same args + same result this many times = loop
+
+circuit:
+  failure_threshold: 3                   # consecutive failures before the circuit opens
+  cooldown_seconds: 30                   # then one trial call is allowed (half-open)
+
+drift:
+  poll_seconds: 3                        # how often live tool schemas are compared to approved ones
+
+policies:                                # first match wins; default is allow
+  - tool: delete_customer
+    action: require_approval
+    reason: Deleting customer data needs a human sign-off
+  - tool: refund_order
+    when: {arg: amount, op: gt, value: 500}
+    action: require_approval
+    reason: Refunds over $500 need a human sign-off

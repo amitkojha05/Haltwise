@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Haltwise</title>
+<style>
+  :root { --bg:#f6f5f1; --card:#fff; --ink:#1b1b1a; --mute:#6b6a65; --line:#e3e1da;
+          --red:#c2410c; --amber:#b45309; --green:#15803d; --accent:#1d4ed8; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#141413; --card:#1e1e1c; --ink:#ecebe6; --mute:#9d9b94; --line:#33322f;
+            --red:#fb923c; --amber:#fbbf24; --green:#4ade80; --accent:#93b4ff; } }
+  * { box-sizing: border-box }
+  body { margin:0; background:var(--bg); color:var(--ink); font:14px/1.45 ui-sans-serif,system-ui,sans-serif }
+  header { display:flex; align-items:baseline; gap:12px; padding:20px 24px 8px }
+  header h1 { margin:0; font-size:20px; letter-spacing:-.01em }
+  header span { color:var(--mute) }
+  main { display:grid; grid-template-columns: 1fr 1fr; gap:16px; padding:16px 24px 32px }
+  @media (max-width: 900px) { main { grid-template-columns: 1fr } }
+  section { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:14px 16px; min-width:0 }
+  section.wide { grid-column: 1 / -1 }
+  h2 { margin:0 0 10px; font-size:13px; text-transform:uppercase; letter-spacing:.06em; color:var(--mute) }
+  table { width:100%; border-collapse:collapse }
+  td, th { text-align:left; padding:6px 8px; border-top:1px solid var(--line); vertical-align:top }
+  th { border-top:0; color:var(--mute); font-weight:500; font-size:12px }
+  code, .mono { font:12px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace }
+  .pill { display:inline-block; padding:1px 8px; border-radius:99px; font-size:12px; font-weight:600 }
+  .running { background:color-mix(in srgb,var(--green) 15%,transparent); color:var(--green) }
+  .killed, .breaking, .open { background:color-mix(in srgb,var(--red) 15%,transparent); color:var(--red) }
+  .pending, .half_open { background:color-mix(in srgb,var(--amber) 18%,transparent); color:var(--amber) }
+  .approved, .closed { background:color-mix(in srgb,var(--green) 15%,transparent); color:var(--green) }
+  .denied { background:color-mix(in srgb,var(--mute) 20%,transparent); color:var(--mute) }
+  .bar { height:6px; background:var(--line); border-radius:3px; overflow:hidden; margin-top:4px }
+  .bar i { display:block; height:100%; background:var(--accent) }
+  .bar i.hot { background:var(--red) }
+  button { font:inherit; font-size:13px; padding:5px 12px; border-radius:6px; border:1px solid var(--line);
+           background:var(--card); color:var(--ink); cursor:pointer }
+  button.go { background:var(--accent); border-color:var(--accent); color:#fff }
+  .empty { color:var(--mute); padding:6px 0 }
+  .drift { border-top:1px solid var(--line); padding:10px 0 }
+  .drift:first-of-type { border-top:0; padding-top:0 }
+  ul { margin:6px 0; padding-left:18px }
+  .ev { display:grid; grid-template-columns: 70px 150px 1fr; gap:8px; padding:4px 0; border-top:1px solid var(--line) }
+  .ev:first-child { border-top:0 }
+  .ev .k { font-weight:600 }
+  .k.run_killed, .k.call_blocked, .k.drift_breaking, .k.circuit_opened { color:var(--red) }
+  .k.approval_requested { color:var(--amber) }
+  .k.drift_fix_approved, .k.approval_approved, .k.circuit_closed { color:var(--green) }
+</style>
+</head>
+<body>
+<header><h1>Haltwise</h1><span>reliability gateway for AI agents</span><span id="budget"></span></header>
+<main>
+  <section class="wide"><h2>Agent runs</h2><div id="runs"></div></section>
+  <section><h2>Pending approvals</h2><div id="approvals"></div></section>
+  <section><h2>Tool contract drift</h2><div id="drift"></div></section>
+  <section><h2>Circuits</h2><div id="circuits"></div></section>
+  <section><h2>Approved tools</h2><div id="tools"></div></section>
+  <section class="wide"><h2>Audit log</h2><div id="events"></div></section>
+</main>
+<script>
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const j = o => esc(JSON.stringify(o));
+const time = ts => new Date(ts * 1000).toLocaleTimeString([], {hour12:false});
+async function post(url) { await fetch(url, {method:'POST'}); refresh(); }
+
+function render(s) {
+  const b = s.budgets;
+  document.getElementById('budget').textContent = `budget per run: ${b.max_calls} calls, $${b.max_cost_usd.toFixed(2)}`;
+
+  document.getElementById('runs').innerHTML = s.runs.length ? `<table><tr><th>Run</th><th>Agent</th><th>Calls</th><th>Spend</th><th>Status</th></tr>` +
+    s.runs.map(r => {
+      const pct = Math.min(100, 100 * r.cost_usd / b.max_cost_usd);
+      return `<tr><td class="mono">${esc(r.run_id)}</td><td>${esc(r.agent)}</td><td>${r.calls} / ${b.max_calls}</td>
+        <td>$${r.cost_usd.toFixed(2)}<div class="bar"><i class="${pct > 80 ? 'hot' : ''}" style="width:${pct}%"></i></div></td>
+        <td><span class="pill ${r.status}">${r.status}</span> ${r.reason ? `<span class="mono">${esc(r.reason)}</span>` : ''}</td></tr>`;
+    }).join('') + `</table>` : `<div class="empty">No runs yet.</div>`;
+
+  const pend = s.approvals.filter(a => a.status === 'pending');
+  const done = s.approvals.filter(a => a.status !== 'pending').slice(0, 3);
+  document.getElementById('approvals').innerHTML = (pend.length || done.length) ? `<table>` +
+    [...pend, ...done].map(a => `<tr><td><b>${esc(a.tool)}</b> <code>${j(a.args)}</code><br><span style="color:var(--mute)">${esc(a.reason)} · run ${esc(a.run_id)}</span></td>
+      <td style="white-space:nowrap;text-align:right">${a.status === 'pending'
+        ? `<button class="go" onclick="post('/v1/approvals/${a.id}/approve')">Approve</button> <button onclick="post('/v1/approvals/${a.id}/deny')">Deny</button>`
+        : `<span class="pill ${a.status}">${a.status}</span>`}</td></tr>`).join('') + `</table>`
+    : `<div class="empty">Nothing waiting. Risky actions appear here before they run.</div>`;
+
+  document.getElementById('drift').innerHTML = s.quarantine.length ? s.quarantine.map(q => `<div class="drift">
+      <b>${esc(q.tool)}</b> <span class="pill ${q.severity}">${q.severity}</span> <span style="color:var(--mute)">quarantined</span>
+      <ul>${q.changes.map(c => `<li>${esc(c.detail)}</li>`).join('')}</ul>
+      <div><b>Proposed fix:</b> ${esc(q.proposal.summary)}</div>
+      ${q.proposal.new_definition ? `<div style="margin:6px 0"><code>${j(q.proposal.new_definition.input_schema.properties)}</code></div>` : ''}
+      <button class="go" onclick="post('/v1/drift/${q.tool}/approve')">Approve fix</button></div>`).join('')
+    : `<div class="empty">All tool contracts match what was approved.</div>`;
+
+  const cs = Object.entries(s.circuits);
+  document.getElementById('circuits').innerHTML = cs.length ? `<table><tr><th>Tool</th><th>State</th><th>Consecutive failures</th></tr>` +
+    cs.map(([t, c]) => `<tr><td>${esc(t)}</td><td><span class="pill ${c.state}">${c.state.replace('_', '-')}</span></td><td>${c.failures}</td></tr>`).join('') + `</table>`
+    : `<div class="empty">No tool calls yet.</div>`;
+
+  document.getElementById('tools').innerHTML = s.tools.map(t => `<code>${esc(t)}</code>`).join(' · ') || '<div class="empty">none</div>';
+
+  document.getElementById('events').innerHTML = s.events.slice(0, 40).map(e => {
+    const {ts, kind, ...rest} = e;
+    return `<div class="ev"><span class="mono" style="color:var(--mute)">${time(ts)}</span><span class="k ${kind}">${esc(kind)}</span><code>${j(rest)}</code></div>`;
+  }).join('') || '<div class="empty">Empty.</div>';
+}
+
+async function refresh() {
+  try { render(await (await fetch('/v1/state')).json()); } catch (e) {}
+}
+refresh(); setInterval(refresh, 1000);
+</script>
+</body>
+</html>
