@@ -10,6 +10,10 @@
 
 Decisions are deterministic: no LLM decides whether a call is allowed. Every call, allowed or blocked, is written to an audit log.
 
+**▶ Demo video (2 min):** https://youtu.be/3TmO92k3PHk
+
+![Haltwise dashboard](docs/dashboard.png)
+
 ## Quickstart (2 minutes)
 
 Windows PowerShell:
@@ -106,7 +110,7 @@ pytest -q
 
 ## Status
 
-Prototype built for the YC W27 application. In-memory state, single process, HTTP tools only. Next: Rust proxy, MCP support, SDK wrappers for LangGraph and the OpenAI Agents SDK, Slack approvals, persistent storage.
+Prototype built by Amit Kumar Ojha and Anshika Vashistha for the YC W27 application. The demo agent is scripted; `agent/llm_agent.py` (real LLM) is written but not yet tested. In-memory state, single process, HTTP tools only. Next: Rust proxy, MCP support, SDK wrappers for LangGraph and the OpenAI Agents SDK, Slack approvals, persistent storage.
 
 ## Layout
 
